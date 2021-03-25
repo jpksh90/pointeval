@@ -8,5 +8,5 @@
 - DaCapo benchmark application
 
 ## Instructions
-- Clone Doop from ...
-- Run Doop with the following Instructions
+- Clone Doop from git clone https://bitbucket.org/yanniss/doop.git. We use the 4.20.7-67 for our evaluation. 
+- Run Doop with the following Instructions.
