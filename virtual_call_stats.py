@@ -1,4 +1,6 @@
-VIRTUAL_CALLS = {
+from typing import Dict, Tuple
+
+VIRTUAL_CALLS: Dict[Tuple[str, str], int] = {
     ('1cs','avrora_soot'): 3499,
     ('1cs','avrora_wala'): 3499,
     ('1cs','batik_soot'): 1588,
@@ -64,9 +66,9 @@ VIRTUAL_CALLS = {
 }
 
 
-def number_virtual_calls(analysis, benchmark, ir):
+def number_virtual_calls(analysis: str, benchmark: str, ir: str) -> int:
+    """Get the number of virtual calls for a given analysis, benchmark, and IR."""
     key = (analysis, f'{benchmark}_{ir}')
     if key in VIRTUAL_CALLS:
         return VIRTUAL_CALLS[key]
-    else:
-        raise ValueError
+    raise ValueError(f"Key {key} not found in VIRTUAL_CALLS")

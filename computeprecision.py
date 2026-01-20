@@ -1,30 +1,31 @@
 import logging
+from typing import Dict, Set, Tuple, Any, List, Optional
 
 from varpointstodb import VarPointsToTable
 from virtualcallvardb import VirtualCallVariablesTable
-from exclusive_classes import exclusive_classes_wala
-from exclusive_classes import exclusive_classes_soot
-from utils import get_type_info
-from utils import pp_dictionary
+from exclusive_classes import exclusive_classes_wala, exclusive_classes_soot
+from utils import get_type_info, pp_dictionary
 from virtual_call_stats import number_virtual_calls
 
 
-def is_exclass_type(var, ex_class):
+def is_exclass_type(var: str, ex_class: Set[str]) -> bool:
     col_idx = var.find(':')
     var_type = var[0:col_idx]
-    if var_type in ex_class:
-        return True
-    return False
+    return var_type in ex_class
 
 
-class ComputePrecision(object):
+class ComputePrecision:
     """
-    benchmark: string
+    Compute precision metrics for pointer analysis.
+
+    Parameters
+    ----------
+    benchmark : str
         Benchmark name
-    analysis: string
-        analysis type (e.g. 1-call-site, 2-call-site, and others)
+    analysis : str
+        Analysis type (e.g. 1-call-site, 2-call-site, and others)
     """
-    def __init__(self, benchmark, analysis):
+    def __init__(self, benchmark: str, analysis: str) -> None:
         logging.basicConfig(filename='info.log', filemode='w', level=logging.INFO)
         self.analysis = analysis
         self.benchmark = benchmark
@@ -34,67 +35,80 @@ class ComputePrecision(object):
         soot_virtualcall_vars_db = VirtualCallVariablesTable(benchmark=benchmark, analysis=analysis, ir='soot')
         self.wala_virtualcall_vars = wala_virtualcall_vars_db.virtualcall_variables()
         self.soot_virtualcall_vars = soot_virtualcall_vars_db.virtualcall_variables()
-        self.interesting_types = set()
+        self.interesting_types: Set[str] = set()
         logging.debug("soot db length", self.soot_db.db.__len__())
         logging.debug("wala db length", self.wala_db.db.__len__())
 
-    def soot_must_alias(self):
-        """
-        computes the must alias information from the pointer analysis based on soot-framework
-        :return:
-        """
+    def soot_must_alias(self) -> Any:
+        """Compute must-alias information from soot pointer analysis."""
         print("Computing must-alias for all variables")
         return self.compute_must_must_alias(self.soot_db)
 
-    def wala_must_alias(self):
-        """
-        computes the must alias analysis information from the pointer analysis based on wala-framework
-        :return:
-        """
+    def wala_must_alias(self) -> Any:
+        """Compute must-alias information from wala pointer analysis."""
         print("Computing must-alias for all variables")
         return self.compute_must_must_alias(self.wala_db)
 
-    def _ir_precision(self, interesting_methods, db, virtual_call_vars, ir):
+    def _ir_precision(
+        self,
+        interesting_methods: Set[str],
+        db: VarPointsToTable,
+        virtual_call_vars: Set[str],
+        ir: str,
+    ) -> Dict[str, Any]:
         """
-        computes the precision for the invoking objects variables in the virtual method calls
-        :param interesting_methods: checks if the number of variables in the methods having the same signature are different for different IRs
-        :param db: target database, either soot or wala for now
-        :param virtual_call_vars: invoking variables in the virtual methods calls
-        :param ir: name of the ir
-        :return: dictionary of the precision metrics
+        Compute precision for invoking objects variables in virtual method calls.
+
+        Parameters
+        ----------
+        interesting_methods : Set[str]
+            Methods with different variable counts across IRs
+        db : VarPointsToTable
+            Target database (soot or wala)
+        virtual_call_vars : Set[str]
+            Invoking variables in virtual method calls
+        ir : str
+            IR name
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary of precision metrics
         """
-        # check the interesting types
         _vars = db.variables_of_enclosed_method(tuple(interesting_methods))
         vars = self.select_virtualcall_variables(_vars, virtual_call_vars)
         rel_heap_objs = db.heap_objs_for_var(vars)
-        # dump relevant heap objects
-        dump_heap_info_to_file(self.benchmark+f"_{ir}.dump", rel_heap_objs)
+        dump_heap_info_to_file(f"{self.benchmark}_{ir}.dump", rel_heap_objs)
         nb_virtual_calls = number_virtual_calls(analysis=self.analysis, benchmark=self.benchmark, ir=ir)
         precision_ir = len(rel_heap_objs) / nb_virtual_calls
         total_heap_objs = db.all_heap_ctx_pair()
         total_vars = db.all_variables_ctx_pair()
         precision_actual = len(total_heap_objs) / len(total_vars) if len(total_vars) != 0 else 0
-        return dict(interesting_types=len(interesting_methods), relevant_vars=len(vars),
-                    relevant_heap_objects=len(rel_heap_objs), vars=len(total_vars), heap_objects=len(total_heap_objs),
-                    precision_ir=precision_ir, precision_actual=precision_actual, nb_virtual_calls=nb_virtual_calls)
+        return {
+            'interesting_types': len(interesting_methods),
+            'relevant_vars': len(vars),
+            'relevant_heap_objects': len(rel_heap_objs),
+            'vars': len(total_vars),
+            'heap_objects': len(total_heap_objs),
+            'precision_ir': precision_ir,
+            'precision_actual': precision_actual,
+            'nb_virtual_calls': nb_virtual_calls,
+        }
 
-    def _compute_interesting_methods(self):
-        """
-        computes the interesting methods. A method is interesting if the number of variables in the methods having the same signature are different for different IRs
-        :return:
-        """
+    def _compute_interesting_methods(self) -> None:
+        """Compute interesting methods with different variable counts across IRs."""
         ex_class_soot = exclusive_classes_soot(self.benchmark)
         ex_class_wala = exclusive_classes_wala(self.benchmark)
 
         soot_var_methods = self.soot_db.get_var_enclosing_method()
         _soot_var_methods = soot_var_methods.copy()
-        for v in _soot_var_methods:  # remove the interference from class hierarchy
+        for v in _soot_var_methods:
             if is_exclass_type(v, ex_class_soot):
                 soot_var_methods.remove(v)
 
         wala_var_methods = self.wala_db.get_var_enclosing_method()
         _wala_var_methods = wala_var_methods.copy()
-        for v in _wala_var_methods:  # remove the intereference from class hierarchy
+        for v in _wala_var_methods:
             if is_exclass_type(v, ex_class_wala):
                 wala_var_methods.remove(v)
 
@@ -102,36 +116,29 @@ class ComputePrecision(object):
         soot_vars_for_type = self.soot_db.count_nb_of_variables_method()
         wala_vars_for_type = self.wala_db.count_nb_of_variables_method()
 
-        # filter out the exclusive classes
         for t in types_union:
-            soot_vars_cnt = soot_vars_for_type[t] if t in soot_vars_for_type else 0
-            wala_vars_cnt = wala_vars_for_type[t] if t in wala_vars_for_type else 0
+            soot_vars_cnt = soot_vars_for_type.get(t, 0)
+            wala_vars_cnt = wala_vars_for_type.get(t, 0)
             if soot_vars_cnt != wala_vars_cnt:
                 self.interesting_types.add(t)
         print(
             f"soot var methods = {len(soot_var_methods)}; wala var methods = {len(wala_var_methods)}; "
             f"interesting types = {len(self.interesting_types)}")
 
-        fh = open(f"logs/soot_{self.analysis}_{self.benchmark}_var_types.log", 'w+')
-        for k, v in soot_vars_for_type.items():
-            fh.write(f"{k}:{v}\n")
-        fh = open(f"logs/wala_{self.analysis}_{self.benchmark}_var_types.log", 'w+')
-        for k, v in wala_vars_for_type.items():
-            fh.write(f"{k}:{v}\n")
+        with open(f"logs/soot_{self.analysis}_{self.benchmark}_var_types.log", 'w+') as fh:
+            for k, v in soot_vars_for_type.items():
+                fh.write(f"{k}:{v}\n")
+        with open(f"logs/wala_{self.analysis}_{self.benchmark}_var_types.log", 'w+') as fh:
+            for k, v in wala_vars_for_type.items():
+                fh.write(f"{k}:{v}\n")
 
-    def resolve_interesting_types(self):
-        """
-        prevents redundant calls to database by caching the set of interesting methods
-        :return:
-        """
+    def resolve_interesting_types(self) -> None:
+        """Cache set of interesting methods to prevent redundant database calls."""
         if len(self.interesting_types) == 0:
             self._compute_interesting_methods()
 
-    def soot_ir_precision(self):
-        """
-        Computes the precision for soot IR. This is the API function which is exposed to outside classes.
-        :return:
-        """
+    def soot_ir_precision(self) -> Dict[str, Any]:
+        """Compute precision for soot IR."""
         self.resolve_interesting_types()
         res = self._ir_precision(self.interesting_types, self.soot_db, self.soot_virtualcall_vars, "soot")
         print('----------------------------- Soot IR Precision -----------------------------------------')
@@ -139,11 +146,8 @@ class ComputePrecision(object):
         pp_dictionary(res)
         return res
 
-    def wala_ir_precision(self):
-        """
-        Computes the precision for wala IR. This is the API function which is exposed to outside classes.
-        :return:
-        """
+    def wala_ir_precision(self) -> Dict[str, Any]:
+        """Compute precision for wala IR."""
         self.resolve_interesting_types()
         res = self._ir_precision(self.interesting_types, self.wala_db, self.wala_virtualcall_vars, "wala")
         print('----------------------------- Wala IR Precision -----------------------------------------')
@@ -151,59 +155,74 @@ class ComputePrecision(object):
         pp_dictionary(res)
         return res
 
-    def select_virtualcall_variables(self, vars, virtualcall_vars):
-        """
-        Selects the invoking variables at the virtual calls. The variables are kept as (varCtx, var) pairs where varCtx is the context-information (calling or object) of the variable var.
-        :param vars: list of (varCtx, var) pairs
-        :param virtualcall_vars: list of variables
-        :return:
-        """
-        res_vars = set()
-        for v in vars:
-            if v[1] in virtualcall_vars:
-                res_vars.add(v)
-        return res_vars
+    def select_virtualcall_variables(
+        self,
+        vars: Set[Tuple[str, str]],
+        virtualcall_vars: Set[str],
+    ) -> Set[Tuple[str, str]]:
+        """Select invoking variables at virtual calls."""
+        return {v for v in vars if v[1] in virtualcall_vars}
 
-    def class_hierarchy_precision(self, ex_types, db, virtualcall_vars):
+    def class_hierarchy_precision(
+        self,
+        ex_types: Set[str],
+        db: VarPointsToTable,
+        virtualcall_vars: Set[str],
+    ) -> Dict[str, Any]:
         """
-        Computes the class hierarchy precision (CH-precision)
-        :param virtualcall_vars:
-        :param ir: compute the class hierarchy
-        :param db: var points-to database
-        :return: a dictionary of (ex_vars, ex_heap_objs, heap_objs, variables, precision)
+        Compute class hierarchy precision (CH-precision).
+
+        Parameters
+        ----------
+        ex_types : Set[str]
+            Exclusive types
+        db : VarPointsToTable
+            Variable points-to database
+        virtualcall_vars : Set[str]
+            Variables in virtual calls
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary with precision metrics
         """
-        # get the number of exclusive variables and heap objects
         _ex_vars = db.variables_by_enclosed_method_class(tuple(ex_types))
-        # choose the variable in virtual calls
         ex_vars = self.select_virtualcall_variables(_ex_vars, virtualcall_vars)
-        ex_heapObjs = db.heap_objs_for_var(ex_vars)
+        ex_heap_objs = db.heap_objs_for_var(ex_vars)
 
         _all_vars = db.all_variables_ctx_pair()
         variables = self.select_virtualcall_variables(_all_vars, virtualcall_vars)
         heap_objs = db.heap_objs_for_var(variables)
         precision_prev = len(heap_objs) / len(variables) if len(variables) != 0 else 0
-        if ex_heapObjs is None:
-            ex_heapObjs = []
+        if ex_heap_objs is None:
+            ex_heap_objs = []
         if ex_vars is None:
             ex_vars = []
-        # compute the type for exclusive vars
-        ex_vars_types = set(map(lambda x: get_type_info(x), [v[1] for v in ex_vars]))
-        precision = (len(heap_objs) - len(ex_heapObjs)) / (len(variables) - len(ex_vars)) if (len(variables) - len(
-            ex_vars)) != 0 else 0
-        results = {'ex_type': len(ex_types), 'ex_vars': len(ex_vars), 'ex_heap_objs': len(ex_heapObjs),
-                   'heap_objs': len(heap_objs), 'variables': len(variables), 'precision': precision,
-                   'precision_prev': precision_prev, 'ex_vars_types': ex_vars_types}
-        # print(self.benchmark, ex_vars)
-        return results
+        ex_vars_types = {get_type_info(v[1]) for v in ex_vars}
+        precision = (
+            (len(heap_objs) - len(ex_heap_objs)) / (len(variables) - len(ex_vars))
+            if (len(variables) - len(ex_vars)) != 0
+            else 0
+        )
+        return {
+            'ex_type': len(ex_types),
+            'ex_vars': len(ex_vars),
+            'ex_heap_objs': len(ex_heap_objs),
+            'heap_objs': len(heap_objs),
+            'variables': len(variables),
+            'precision': precision,
+            'precision_prev': precision_prev,
+            'ex_vars_types': ex_vars_types,
+        }
 
-    def soot_class_hierarchy_precision(self):
+    def soot_class_hierarchy_precision(self) -> Dict[str, Any]:
         ex_types = exclusive_classes_soot(self.benchmark)
         res = self.class_hierarchy_precision(ex_types, self.soot_db, self.soot_virtualcall_vars)
         print("=============== SOOT CLASS HIERARCHY PRECISION =========================")
         pp_dictionary(res)
         return res
 
-    def wala_class_hierarchy_precision(self):
+    def wala_class_hierarchy_precision(self) -> Dict[str, Any]:
         ex_types = exclusive_classes_wala(self.benchmark)
         res = self.class_hierarchy_precision(ex_types, self.wala_db, self.wala_virtualcall_vars)
         print("=============== WALA CLASS HIERARCHY PRECISION =========================")
@@ -211,11 +230,9 @@ class ComputePrecision(object):
         return res
 
 
-def dump_heap_info_to_file(filename, list_of_heap_objs):
-    #convert the list of a set
+def dump_heap_info_to_file(filename: str, list_of_heap_objs: List[Tuple[str, str]]) -> None:
+    """Write unique heap objects to a file."""
     set_of_heap_objs = set(list_of_heap_objs)
     with open(filename, 'w+') as fh:
-        for l in set_of_heap_objs:
-            fh.write(str(l) + '\n')
-            # fh.write(f'{l[0]}\t{l[1]}')
-            # fh.write('\n')
+        for heap_obj in set_of_heap_objs:
+            fh.write(f'{heap_obj}\n')
