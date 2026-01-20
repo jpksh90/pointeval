@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pointeval"
+version = "0.1.0"
+description = "Point-based pointer analysis evaluation framework"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "PointEval Contributors" }
+]
+dependencies = [
+    "bitsets",
+    "disjoint-set",
+    "scipy",
+    "tabulate",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.uv]
+managed = true
